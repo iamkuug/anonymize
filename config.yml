@@ -1,0 +1,9 @@
+tables:
+    users:
+      name: mask
+      email: mask
+      password: mask
+
+    orders: 
+      shipping_address: mask
+      order_date: shift 
