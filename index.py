@@ -1,9 +1,11 @@
+import psycopg2.extras
 import yaml
 import mysql.connector
 import os
 import logging
 import json
 import coloredlogs
+import psycopg2
 
 from dotenv import load_dotenv
 from utils import Masker, TestSeeder, Shifter
@@ -27,9 +29,15 @@ class Anonymizer:
                 password=os.getenv("DATABASE_PASSWORD"),
                 database=os.getenv("DATABASE_NAME")
             )
+        elif dialect == "postgres":
+            return psycopg2.connect(
+                host=os.getenv("DATABASE_HOST"),
+                user=os.getenv("DATABASE_USER"),
+                password=os.getenv("DATABASE_PASSWORD"),
+                dbname=os.getenv("DATABASE_NAME")
+            )
         else:
             logging.error("Database dialect not supported. Add appropriate property to your config.yml")
-            return None
         
     
     @staticmethod
@@ -56,7 +64,7 @@ class Anonymizer:
         mask_columns = column_meta["mask_columns"]
         column_op_mappings = {list(col.keys())[0]: list(col.values())[0] for col in mask_columns}
 
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor) if isinstance(conn, psycopg2.extensions.connection) else conn.cursor(dictionary=True)
         columns = ",".join(column_op_mappings.keys())
         offset = 0
 
@@ -113,6 +121,10 @@ class Anonymizer:
         cursor.execute(f"SELECT {primary_key}, {columns} FROM {table_name} LIMIT 1")
         sample_row = cursor.fetchone()
 
+        if not sample_row:
+            logging.warning(f"Abort '{table_name}' table has no rows")
+            return False
+
         # Anonymize the sample row
         sample_anon_row = {**{primary_key: sample_row[primary_key]}, **{col: Anonymizer.apply_masking(column_op_mappings[col], sample_row[col]) for col in column_op_mappings.keys()}}
 
@@ -142,6 +154,8 @@ class Anonymizer:
         config = Anonymizer.load_config()
         conn = Anonymizer.connect_to_db(config["dialect"])
         table_data = config.get("tables")
+
+        logging.debug(f"Using {config["dialect"].upper()} dialect")
 
         if conn:
             for table_name, column_meta in table_data.items():
@@ -175,6 +189,6 @@ if __name__ == "__main__":
         level_styles=log_styles
     )
 
-    seeder = TestSeeder()
-    seeder.run()
+    # seeder = TestSeeder()
+    # seeder.run()
     Anonymizer.run()
