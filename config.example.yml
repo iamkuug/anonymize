@@ -1,0 +1,14 @@
+dialect: mysql # could be postgres
+tables:
+    users:
+      primary_key: id
+      mask_columns:
+        - email: email
+        - phone: phone
+        - password: password
+        - address: address
+    orders:
+      primary_key: id 
+      mask_columns:
+        - shipping_address: address
+        - order_date: date

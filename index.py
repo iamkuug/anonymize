@@ -169,6 +169,14 @@ class Anonymizer:
                 Anonymizer.anonymize_data(conn, table_name, column_meta)
             conn.close()
             logging.info("COMPLETED")
+        
+        if is_preview:
+            try:
+                os.remove("config.preview.yml")
+                logging.info("config.preview.yml deleted.")
+            except OSError as e:
+                logging.error(f"Error deleting config.preview.yml: {e}")
+
 
 if __name__ == "__main__":
     load_dotenv()
@@ -208,5 +216,6 @@ if __name__ == "__main__":
         seeder.run()
         logging.info("Preview mode:")
         Anonymizer.is_preview = True
+    
 
     Anonymizer.run()
