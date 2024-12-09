@@ -1,9 +1,26 @@
+dialect: mysql # could be postgres
 tables:
     users:
-      name: mask
-      email: mask
-      password: mask
+      primary_key: id
+      mask_columns:
+        - email: email
+        - phone: phone
+        - password: password
+        - address: address
+    orders:
+      primary_key: id 
+      mask_columns:
+        - shipping_address: address
+        - order_date: date
 
-    orders: 
-      shipping_address: mask
-      order_date: shift 
+# More info
+# mask_columns:
+#   column_name: mask_type
+
+# mask_types:
+#   email
+#   phone
+#   password
+#   address
+#   date
+

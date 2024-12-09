@@ -1,2 +1,5 @@
 .env
 env
+config.yml
+config.yaml
+__pycahce__
