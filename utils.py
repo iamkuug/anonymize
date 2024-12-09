@@ -2,6 +2,7 @@ import hashlib
 import mysql.connector
 import os
 import logging
+import yaml
 
 from mysql.connector import errorcode
 from datetime import datetime, timedelta, date
@@ -69,7 +70,7 @@ class TestSeeder:
         try:
             self.conn = mysql.connector.connect(**self.db_config)
             self.cursor = self.conn.cursor()
-            logging.debug("Connected to test database")
+            logging.debug(f"Connected to test database ({self.db_config['database']})")
         except mysql.connector.Error as err:
             if err.errno == errorcode.ER_ACCESS_DENIED_ERROR:
                 logging.critical("Something is wrong with your user name or password")
@@ -93,40 +94,52 @@ class TestSeeder:
         finally:
             self.disconnect()
 
+    def run_sql_script(self, script_path):
+        with open(script_path, 'r') as file:
+            sql_script = file.read()
+        for statement in sql_script.split(';'):
+            if statement.strip():
+                logging.debug(f"Executing: {statement}")
+                self.cursor.execute(statement)
+        self.conn.commit()
+        logging.debug(f"SQL script {script_path} executed successfully")
+
+    def generate_config_yml(self):
+        config = {
+            'dialect': 'mysql',
+            'tables': {
+                'users': {
+                    'primary_key': 'id',
+                    'mask_columns': [
+                        {'email': 'email'},
+                        {'phone': 'phone'},
+                        {'password': 'password'},
+                        {'address': 'address'}
+                    ]
+                },
+                'orders': {
+                    'primary_key': 'id',
+                    'mask_columns': [
+                        {'shipping_address': 'address'},
+                        {'order_date': 'date'}
+                    ]
+                }
+            }
+        }
+        with open('config.preview.yml', 'w') as file:
+            yaml.dump(config, file, default_flow_style=False)
+        logging.debug("test-config.yml generated successfully")
+
     def disconnect(self):
         if self.conn:
             self.cursor.close()
             self.conn.close()
             logging.debug("Connection to test database closed")
 
-    def wipe_data(self):
-        self.cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
-        self.cursor.execute("SHOW TABLES;")
-        tables = self.cursor.fetchall()
-        for table in tables:
-            self.cursor.execute(f"TRUNCATE TABLE {table[0]};")
-        self.cursor.execute("SET FOREIGN_KEY_CHECKS = 1;")
-        self.conn.commit()
-        logging.debug("Previous test data wiped")
-
-    def seed_data(self):
-        self.cursor.execute("""
-            INSERT INTO users (id, email, phone, password, address) VALUES
-            (1, 'john.doe@example.com', '1234567890', 'password123', '123 Main St'),
-            (2, 'jane.doe@example.com', '0987654321', 'password456', '456 Elm St');
-        """)
-        self.cursor.execute("""
-            INSERT INTO orders (id, shipping_address, order_date, userId) VALUES
-            (1, '123 Main St', '2023-01-01', 1),
-            (2, '456 Elm St', '2023-01-02', 2);
-        """)
-        self.conn.commit()
-        logging.debug("Dummy data inserted")
-
     def run(self):
         self.connect()
-        self.wipe_data()
-        self.seed_data()
+        self.run_sql_script('test/test_seed.sql')
+        self.generate_config_yml()
         self.disconnect()
     
 

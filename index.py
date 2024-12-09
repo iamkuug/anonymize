@@ -6,6 +6,7 @@ import logging
 import json
 import coloredlogs
 import psycopg2
+import argparse
 
 from dotenv import load_dotenv
 from utils import Masker, TestSeeder, Shifter
@@ -15,8 +16,14 @@ from termcolor import colored
 
 
 class Anonymizer:
+    is_preview = False
+
     @staticmethod
     def load_config():
+        if is_preview:
+            with open("config.preview.yml", "r") as file:
+                return yaml.safe_load(file)
+
         with open("config.yml", "r") as file:
             return yaml.safe_load(file)
 
@@ -27,7 +34,7 @@ class Anonymizer:
                 host=os.getenv("DATABASE_HOST"),
                 user=os.getenv("DATABASE_USER"),
                 password=os.getenv("DATABASE_PASSWORD"),
-                database=os.getenv("DATABASE_NAME")
+                database="anony" if is_preview else os.getenv("DATABASE_NAME")
             )
         elif dialect == "postgres":
             return psycopg2.connect(
@@ -57,7 +64,7 @@ class Anonymizer:
             return value
 
     @staticmethod
-    def anonymize_data(conn, table_name, column_meta, batch_size=100):
+    def anonymize_data(conn, table_name, column_meta, batch_size=10):
         logging.info(f"Anonymizing {table_name} table ...")
 
         primary_key = column_meta["primary_key"] if column_meta.get("primary_key") else "id"
@@ -161,6 +168,7 @@ class Anonymizer:
             for table_name, column_meta in table_data.items():
                 Anonymizer.anonymize_data(conn, table_name, column_meta)
             conn.close()
+            logging.info("COMPLETED")
 
 if __name__ == "__main__":
     load_dotenv()
@@ -189,6 +197,16 @@ if __name__ == "__main__":
         level_styles=log_styles
     )
 
-    # seeder = TestSeeder()
-    # seeder.run()
+    parser = argparse.ArgumentParser(description='Run the main application.')
+    parser.add_argument('--preview', action='store_true', help='Run in preview mode')
+    args = parser.parse_args()
+
+    is_preview = False
+
+    if args.preview:
+        seeder = TestSeeder()
+        seeder.run()
+        logging.info("Preview mode:")
+        Anonymizer.is_preview = True
+
     Anonymizer.run()
