@@ -4,8 +4,7 @@ import os
 import logging
 
 from mysql.connector import errorcode
-from datetime import datetime, timedelta
-from dotenv import load_dotenv
+from datetime import datetime, timedelta, date
 
 
 class Masker:
@@ -31,11 +30,16 @@ class Masker:
         return f"{local[0]}{'*' * (len(local) - 2)}{local[-1]}@{domain}" if len(local) > 2 else email
 
     @staticmethod
-    def mask_date(date: str) -> str:
-        parts = date.split('-')
+    def mask_date(date_value) -> str:
+        if isinstance(date_value, date):
+            date_value = date_value.strftime('%Y-%m-%d')
+        elif not isinstance(date_value, str):
+            raise ValueError("Invalid date format")
+
+        parts = date_value.split('-')
         if len(parts) == 3:
             return f"{parts[0]}-**-**"
-        return date
+        return date_value
 
     @staticmethod
     def _hash_value(value: str) -> str:
@@ -43,9 +47,8 @@ class Masker:
 
 class Shifter:
     @staticmethod
-    def shift_date(date: str, shift_days: int) -> str:
-        date_obj = datetime.strptime(date, "%Y-%m-%d")
-        shifted_date = date_obj + timedelta(days=shift_days)
+    def shift_date(date, shift_days: int = 10) -> str:
+        shifted_date = date + timedelta(days=shift_days)
         return shifted_date.strftime("%Y-%m-%d")
 
 
@@ -58,8 +61,7 @@ class TestSeeder:
             'host': os.getenv('DATABASE_HOST'),
             'database': "anony"
         }
-
-        print(self.db_config)
+        logging.info("Running TestSeeder ...")
         self.conn = None
         self.cursor = None
 
@@ -72,7 +74,7 @@ class TestSeeder:
             if err.errno == errorcode.ER_ACCESS_DENIED_ERROR:
                 logging.critical("Something is wrong with your user name or password")
             elif err.errno == errorcode.ER_BAD_DB_ERROR:
-                logging.warning("Database does not exist, creating database ...")
+                logging.warning("Test database does not exist, creating database ...")
                 self.create_database()
                 self.connect()
             else:
@@ -105,7 +107,7 @@ class TestSeeder:
             self.cursor.execute(f"TRUNCATE TABLE {table[0]};")
         self.cursor.execute("SET FOREIGN_KEY_CHECKS = 1;")
         self.conn.commit()
-        logging.debug("All data wiped")
+        logging.debug("Previous test data wiped")
 
     def seed_data(self):
         self.cursor.execute("""
@@ -114,9 +116,9 @@ class TestSeeder:
             (2, 'jane.doe@example.com', '0987654321', 'password456', '456 Elm St');
         """)
         self.cursor.execute("""
-            INSERT INTO orders (id, shipping_address) VALUES
-            (1, '123 Main St'),
-            (2, '456 Elm St');
+            INSERT INTO orders (id, shipping_address, order_date, userId) VALUES
+            (1, '123 Main St', '2023-01-01', 1),
+            (2, '456 Elm St', '2023-01-02', 2);
         """)
         self.conn.commit()
         logging.debug("Dummy data inserted")

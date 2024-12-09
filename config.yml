@@ -13,6 +13,7 @@ tables:
         - shipping_address: address
         - order_date: date
 
+
 # More info
 # mask_columns:
 #   column_name: mask_type
