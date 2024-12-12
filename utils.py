@@ -1,11 +1,11 @@
 import hashlib
-import mysql.connector
 import os
 import logging
 import yaml
 
-from mysql.connector import errorcode
 from datetime import datetime, timedelta, date
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 
 class Masker:
@@ -21,30 +21,37 @@ class Masker:
     def mask_address(address: str) -> str:
         parts = address.split()
         if len(parts) > 1:
-            masked_parts = [parts[0]] + ['*' * len(part) for part in parts[1:]]
-            return ' '.join(masked_parts)
+            masked_parts = [parts[0]] + ["*" * len(part) for part in parts[1:]]
+            return " ".join(masked_parts)
         return address
 
     @staticmethod
     def mask_email(email: str) -> str:
-        local, domain = email.split('@')
-        return f"{local[0]}{'*' * (len(local) - 2)}{local[-1]}@{domain}" if len(local) > 2 else email
+        local, domain = email.split("@")
+        return (
+            f"{local[0]}{'*' * (len(local) - 2)}{local[-1]}@{domain}"
+            if len(local) > 2
+            else email
+        )
 
     @staticmethod
     def mask_date(date_value) -> str:
         if isinstance(date_value, date):
-            date_value = date_value.strftime('%Y-%m-%d')
+            date_value = date_value.strftime("%Y-%m-%d")
         elif not isinstance(date_value, str):
             raise ValueError("Invalid date format")
 
-        parts = date_value.split('-')
+        parts = date_value.split("-")
         if len(parts) == 3:
             return f"{parts[0]}-**-**"
         return date_value
 
     @staticmethod
     def _hash_value(value: str) -> str:
-        return hashlib.sha256(value.encode()).hexdigest()[:10]  # Return first 10 characters of the hash
+        return hashlib.sha256(value.encode()).hexdigest()[
+            :10
+        ]  # Return first 10 characters of the hash
+
 
 class Shifter:
     @staticmethod
@@ -53,96 +60,106 @@ class Shifter:
         return shifted_date.strftime("%Y-%m-%d")
 
 
-class TestSeeder:
-    def __init__(self):
-        
-        self.db_config = {
-            'user': os.getenv('DATABASE_USER'),
-            'password': os.getenv('DATABASE_PASSWORD'),
-            'host': os.getenv('DATABASE_HOST'),
-            'database': "anony"
-        }
-        logging.info("Running TestSeeder ...")
-        self.conn = None
-        self.cursor = None
+class DBConnector:
+    def __init__(self, dialect, username, password, host, port, database):
+        self.dialect = dialect
+        self.username = username
+        self.password = password
+        self.host = host
+        self.port = port
+        self.database = database
+        self.engine = None
+        self.session = None
 
     def connect(self):
-        try:
-            self.conn = mysql.connector.connect(**self.db_config)
-            self.cursor = self.conn.cursor()
-            logging.debug(f"Connected to test database ({self.db_config['database']})")
-        except mysql.connector.Error as err:
-            if err.errno == errorcode.ER_ACCESS_DENIED_ERROR:
-                logging.critical("Something is wrong with your user name or password")
-            elif err.errno == errorcode.ER_BAD_DB_ERROR:
-                logging.warning("Test database does not exist, creating database ...")
-                self.create_database()
-                self.connect()
-            else:
-                logging.error(err)
+        connection_string = f"{self.dialect}://{self.username}:{self.password}@{self.host}:{self.port}/{self.database}"
+        self.engine = create_engine(connection_string)
+        Session = sessionmaker(bind=self.engine)
+        self.session = Session()
 
-    def create_database(self):
-        try:
-            temp_config = self.db_config.copy()
-            temp_config.pop('database')
-            self.conn = mysql.connector.connect(**temp_config)
-            self.cursor = self.conn.cursor()
-            self.cursor.execute(f"CREATE DATABASE {self.db_config['database']}")
-            logging.debug(f"Database {self.db_config['database']} created successfully")
-        except mysql.connector.Error as err:
-            logging.critical(f"Failed to create database: {err}")
-        finally:
-            self.disconnect()
+    def execute_query(self, query):
+        with self.engine.connect() as connection:
+            result = connection.execute(query)
+            return result.fetchall()
 
-    def run_sql_script(self, script_path):
-        with open(script_path, 'r') as file:
-            sql_script = file.read()
-        for statement in sql_script.split(';'):
-            if statement.strip():
-                logging.debug(f"Executing: {statement}")
-                self.cursor.execute(statement)
-        self.conn.commit()
-        logging.debug(f"SQL script {script_path} executed successfully")
+    def close(self):
+        if self.session:
+            self.session.close()
+        if self.engine:
+            self.engine.dispose()
 
-    def generate_config_yml(self):
-        config = {
-            'dialect': 'mysql',
-            'tables': {
-                'users': {
-                    'primary_key': 'id',
-                    'mask_columns': [
-                        {'email': 'email'},
-                        {'phone': 'phone'},
-                        {'password': 'password'},
-                        {'address': 'address'}
-                    ]
-                },
-                'orders': {
-                    'primary_key': 'id',
-                    'mask_columns': [
-                        {'shipping_address': 'address'},
-                        {'order_date': 'date'}
-                    ]
-                }
-            }
+
+class TestSeeder:
+    def __init__(self, dialect="mysql"):
+
+        logging.info("Running TestSeeder ...")
+
+        self.db_config = {
+            "user": os.getenv("DATABASE_USER"),
+            "password": os.getenv("DATABASE_PASSWORD"),
+            "host": os.getenv("DATABASE_HOST"),
+            "port": 3306 if dialect == "mysql" else 5432,
+            "database": "test_db",
         }
-        with open('config.preview.yml', 'w') as file:
-            yaml.dump(config, file, default_flow_style=False)
-        logging.debug("test-config.yml generated successfully")
 
-    def disconnect(self):
-        if self.conn:
-            self.cursor.close()
-            self.conn.close()
-            logging.debug("Connection to test database closed")
+        self.conn = DBConnector(
+            dialect,
+            self.db_config["user"],
+            self.db_config["password"],
+            self.db_config["host"],
+            self.db_config["port"],
+            self.db_config["database"],
+        )
+
+    def run_sql(self):
+        script_path = "test/test_seed.sql"
+
+        if not os.path.exists(script_path):
+            raise FileNotFoundError(f"File {script_path} not found")
+
+        with open(script_path, "r") as file:
+            sql_script = file.read()
+
+        for statement in sql_script.split(";"):
+            if statement.strip():
+                self.conn.execute_query(statement)
+
+        logging.debug(f"Run test script {script_path}")
+
+    def generate_config(self):
+        config = {
+            "dialect": self.dialect,
+            "tables": {
+                "users": {
+                    "primary_key": "id",
+                    "mask_columns": [
+                        {"email": "email"},
+                        {"phone": "phone"},
+                        {"password": "password"},
+                        {"address": "address"},
+                    ],
+                },
+                "orders": {
+                    "primary_key": "id",
+                    "mask_columns": [
+                        {"shipping_address": "address"},
+                        {"order_date": "date"},
+                    ],
+                },
+            },
+        }
+
+        with open("config.preview.yml", "w") as file:
+            yaml.dump(config, file, default_flow_style=False)
+
+        logging.debug(f"Generated config file config.preview.yml")
 
     def run(self):
-        self.connect()
-        self.run_sql_script('test/test_seed.sql')
-        self.generate_config_yml()
-        self.disconnect()
-    
-
-
-
-
+        try:
+            self.conn.connect()
+            self.run_sql()
+            self.generate_config()
+            self.conn.close()
+        except Exception as e:
+            logging.error("An error occured while running test seeder")
+            print(e)
