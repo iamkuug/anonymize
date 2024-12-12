@@ -226,48 +226,54 @@ class Anonymizer:
 
 
 if __name__ == "__main__":
-    load_dotenv()
+    try:
+        load_dotenv()
 
-    parser = argparse.ArgumentParser(description="Run the main application.")
-    parser.add_argument("--preview", action="store_true", help="Run in preview mode")
-    parser.add_argument(
-        "--postgres", action="store_true", help="Use PostgreSQL database"
-    )
-    args = parser.parse_args()
-
-    log_styles = {
-        "debug": {"color": "green"},
-        "info": {"color": "blue"},
-        "warning": {"color": "yellow"},
-        "error": {"color": "red"},
-        "critical": {"color": "magenta", "bold": True},
-    }
-
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-
-    logging = logging.getLogger(__name__)
-
-    coloredlogs.install(
-        level="DEBUG",
-        fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        level_styles=log_styles,
-    )
-
-    anonymizer = None
-
-    if args.preview:
-        seeder = TestSeeder("postgresql" if args.postgres else "mysql")
-        seeder.run()
-
-        anonymizer = Anonymizer(
-            dialect="postgresql" if args.postgres else "mysql", is_preview=True
+        parser = argparse.ArgumentParser(description="Run the main application.")
+        parser.add_argument(
+            "--preview", action="store_true", help="Run in preview mode"
         )
-    else:
-        anonymizer = Anonymizer()
+        parser.add_argument(
+            "--postgres", action="store_true", help="Use PostgreSQL database"
+        )
+        args = parser.parse_args()
 
-    anonymizer.run()
+        log_styles = {
+            "debug": {"color": "green"},
+            "info": {"color": "blue"},
+            "warning": {"color": "yellow"},
+            "error": {"color": "red"},
+            "critical": {"color": "magenta", "bold": True},
+        }
+
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+
+        logging = logging.getLogger(__name__)
+
+        coloredlogs.install(
+            level="DEBUG",
+            fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+            level_styles=log_styles,
+        )
+
+        anonymizer = None
+
+        if args.preview:
+            seeder = TestSeeder("postgresql" if args.postgres else "mysql")
+            seeder.run()
+
+            anonymizer = Anonymizer(
+                dialect="postgresql" if args.postgres else "mysql", is_preview=True
+            )
+        else:
+            anonymizer = Anonymizer(dialect="postgresql" if args.postgres else "mysql")
+
+        anonymizer.run()
+    except Exception as e:
+        logging.error("An error occurred while running the anonymizer")
+        print(e)
