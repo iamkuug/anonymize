@@ -4,8 +4,10 @@ import logging
 import yaml
 
 from datetime import datetime, timedelta, date
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
+from dotenv import load_dotenv
+from urllib.parse import quote_plus
 
 
 class Masker:
@@ -72,15 +74,72 @@ class DBConnector:
         self.session = None
 
     def connect(self):
-        connection_string = f"{self.dialect}://{self.username}:{self.password}@{self.host}:{self.port}/{self.database}"
-        self.engine = create_engine(connection_string)
-        Session = sessionmaker(bind=self.engine)
-        self.session = Session()
+        try:
+            connection_string = f"{self.dialect}://{self.username}:{quote_plus(self.password)}@{self.host}:{self.port}/{self.database}"
+            self.engine = create_engine(connection_string)
+            Session = sessionmaker(bind=self.engine)
+            self.session = Session()
+        except Exception as e:
+            raise Exception(e)
 
-    def execute_query(self, query):
-        with self.engine.connect() as connection:
-            result = connection.execute(query)
-            return result.fetchall()
+    def execute_query(self, query, params=None, fetch_one=False):
+        try:
+            query = text(query)
+
+            if not self.engine:
+                self.connect()
+
+            if params:
+                if isinstance(params, list):
+                    params = [tuple(params)]
+                result = self.session.execute(query, params)
+            else:
+                result = self.session.execute(query)
+
+            if fetch_one:
+                return result.fetchone()
+            else:
+                return result.fetchall()
+
+        except Exception as e:
+            raise Exception(e)
+
+    def execute_update(self, query, params=None):
+        try:
+            query = text(query)
+
+            if not self.engine:
+                self.connect()
+
+            if params:
+                result = self.session.execute(query, params)
+            else:
+                result = self.session.execute(query)
+
+            self.session.commit()
+
+        except Exception as e:
+            self.session.rollback()
+            raise Exception(e)
+
+    def execute_insert(self, query, params=None):
+        try:
+            query = text(query)
+
+            if not self.engine:
+                self.connect()
+
+            if params:
+                result = self.session.execute(query, params)
+            else:
+                result = self.session.execute(query)
+
+            self.session.commit()
+
+            return result.lastrowid
+        except Exception as e:
+            self.session.rollback()
+            raise Exception(e)
 
     def close(self):
         if self.session:
@@ -94,6 +153,7 @@ class TestSeeder:
 
         logging.info("Running TestSeeder ...")
 
+        self.dialect = dialect
         self.db_config = {
             "user": os.getenv("DATABASE_USER"),
             "password": os.getenv("DATABASE_PASSWORD"),
@@ -112,7 +172,11 @@ class TestSeeder:
         )
 
     def run_sql(self):
-        script_path = "test/test_seed.sql"
+        script_path = (
+            "test/test_seed_mysql.sql"
+            if self.dialect == "mysql"
+            else "test/test_seed_postgresql.sql"
+        )
 
         if not os.path.exists(script_path):
             raise FileNotFoundError(f"File {script_path} not found")
@@ -122,13 +186,14 @@ class TestSeeder:
 
         for statement in sql_script.split(";"):
             if statement.strip():
-                self.conn.execute_query(statement)
+                self.conn.execute_insert(statement)
 
         logging.debug(f"Run test script {script_path}")
 
     def generate_config(self):
         config = {
             "dialect": self.dialect,
+            "batch_size": 10,
             "tables": {
                 "users": {
                     "primary_key": "id",
@@ -159,7 +224,8 @@ class TestSeeder:
             self.conn.connect()
             self.run_sql()
             self.generate_config()
-            self.conn.close()
         except Exception as e:
             logging.error("An error occured while running test seeder")
             print(e)
+        finally:
+            self.conn.close()

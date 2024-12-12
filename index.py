@@ -1,40 +1,46 @@
-import psycopg2.extras
 import yaml
-import mysql.connector
 import os
 import logging
-import coloredlogs
-import psycopg2
 import argparse
+import coloredlogs
+import pymysql
 
-from dotenv import load_dotenv
 from utils import Masker, TestSeeder, Shifter, DBConnector
 from tabulate import tabulate
 from termcolor import colored
+from dotenv import load_dotenv
+
+pymysql.install_as_MySQLdb()
 
 
 class Anonymizer:
 
-    def __init__(self, dialect="mysql", is_preview=False):
+    def __init__(self, dialect, is_preview=False):
         self.config = None
-        self.is_preview = False
+        self.is_preview = is_preview
+        self.dialect = dialect
 
         self.db_config = {
             "user": os.getenv("DATABASE_USER"),
             "password": os.getenv("DATABASE_PASSWORD"),
             "host": os.getenv("DATABASE_HOST"),
-            "port": 3306 if dialect == "mysql" else 5432,
-            "database": os.getenv("DATABASE_NAME"),
+            "port": 3306 if self.dialect == "mysql" else 5432,
+            "database": "test_db" if self.is_preview else os.getenv("DATABASE_NAME"),
         }
 
+        print(self.db_config)
+
         self.conn = DBConnector(
-            dialect,
+            self.dialect,
             self.db_config["user"],
             self.db_config["password"],
             self.db_config["host"],
             self.db_config["port"],
             self.db_config["database"],
         )
+
+        self.load_config()
+        self.conn.connect()
 
     def load_config(self):
         if self.is_preview:
@@ -74,97 +80,69 @@ class Anonymizer:
         columns = ",".join(column_op_mappings.keys())
         offset = 0
 
-        if not self.get_user_consent(
-            cursor, table_name, primary_key, columns, column_op_mappings, batch_size
+        if not self.get_initial_preview_consent(
+            table_name, primary_key, columns, column_op_mappings, batch_size
         ):
             return
 
-        total_anoynmized_rows = []
+        all_anonymized_rows = []
 
         while True:
-            sql = f"SELECT {primary_key}, {columns} FROM {table_name} LIMIT {batch_size} OFFSET {offset}"
-            logging.debug(f"Executing: {sql}")
-            cursor.execute(sql)
-            result = cursor.fetchall()
+            select_stmnt = f"SELECT {primary_key}, {columns} FROM {table_name} LIMIT {batch_size} OFFSET {offset}"
+            logging.debug(f"Executing: {select_stmnt}")
 
-            if not result:
+            batch = [
+                record._asdict() for record in self.conn.execute_query(select_stmnt)
+            ]
+
+            if not batch:
                 break
 
-            anonymized_result = [
+            batch_anonymized = [
                 {
                     **{primary_key: row[primary_key]},
                     **{
-                        col: Anonymizer.apply_masking(column_op_mappings[col], row[col])
+                        col: self.apply_masking(column_op_mappings[col], row[col])
                         for col in column_op_mappings.keys()
                     },
                 }
-                for row in result
+                for row in batch
             ]
 
-            total_anoynmized_rows.extend(anonymized_result)
+            all_anonymized_rows.extend(batch_anonymized)
             offset += batch_size
 
-        # Preview the updates
-        headers = list(total_anoynmized_rows[0].keys())
-        preview_data = [
-            [row[col] for col in headers] for row in total_anoynmized_rows[:15]
-        ]
-
-        print(colored("Preview:", "red"))
-        print(tabulate(preview_data, headers=headers, tablefmt="grid"))
-
-        consent = input(
-            colored("Are you sure you want to commit these changes? (yes/no): ", "red")
+        self.get_final_preview_consent(
+            all_anonymized_rows, table_name, primary_key, column_op_mappings
         )
-        if consent.lower() == "yes":
-            for row in total_anoynmized_rows:
-                set_clause = ", ".join(
-                    [f"{col} = %s" for col in column_op_mappings.keys()]
-                )
-                update_sql = (
-                    f"UPDATE {table_name} SET {set_clause} WHERE {primary_key} = %s"
-                )
-                cursor.execute(
-                    update_sql,
-                    [row[col] for col in column_op_mappings.keys()]
-                    + [row[primary_key]],
-                )
 
-            conn.commit()
-            logging.debug("DONE")
-        else:
-            logging.info("Update aborted")
-
-    def get_user_consent(
-        cursor, table_name, primary_key, columns, column_op_mappings, batch_size
+    def get_initial_preview_consent(
+        self, table_name, primary_key, columns, column_op_mappings, batch_size
     ):
-        # Fetch total number of rows in the table
-        cursor.execute(f"SELECT COUNT(*) AS total FROM {table_name}")
-        total_rows = cursor.fetchone()["total"]
+        total_rows = self.conn.execute_query(
+            f"SELECT COUNT(*) AS total FROM {table_name}", fetch_one=True
+        )._asdict()["total"]
 
-        # Fetch a sample row
-        cursor.execute(f"SELECT {primary_key}, {columns} FROM {table_name} LIMIT 1")
-        sample_row = cursor.fetchone()
+        sample_row = self.conn.execute_query(
+            f"SELECT {primary_key}, {columns} FROM {table_name} LIMIT 1", fetch_one=True
+        )._asdict()
 
         if not sample_row:
             logging.warning(f"Abort '{table_name}' table has no rows")
             return False
 
-        # Anonymize the sample row
         sample_anon_row = {
             **{primary_key: sample_row[primary_key]},
             **{
-                col: Anonymizer.apply_masking(column_op_mappings[col], sample_row[col])
+                col: self.apply_masking(column_op_mappings[col], sample_row[col])
                 for col in column_op_mappings.keys()
             },
         }
 
-        # Display the sample row before and after anonymization
         headers = list(sample_row.keys())
         original_row = [sample_row[col] for col in headers]
         anonymized_row = [sample_anon_row[col] for col in headers]
 
-        # Color code the rows
         original_row_colored = [colored(str(item), "red") for item in original_row]
         anonymized_row_colored = [
             colored(str(item), "green") for item in anonymized_row
@@ -178,7 +156,6 @@ class Anonymizer:
         logging.info("Sample row before and after anonymization:")
         print(tabulate(table_data, headers=[""] + headers, tablefmt="grid"))
 
-        # Prompt the user for consent
         consent = input(
             f"The table '{table_name}' has {total_rows} rows. The anonymization will be performed in batches of {batch_size} rows. Do you want to proceed with the update? (yes/no): "
         )
@@ -187,30 +164,76 @@ class Anonymizer:
             return False
         return True
 
-    @staticmethod
-    def run():
-        config = Anonymizer.load_config()
-        conn = Anonymizer.connect_to_db(config["dialect"])
-        table_data = config.get("tables")
+    def get_final_preview_consent(
+        self, all_anonymized_rows, table_name, primary_key, column_op_mappings
+    ):
+        headers = list(all_anonymized_rows[0].keys())
+        preview_data = [
+            [row[col] for col in headers] for row in all_anonymized_rows[:15]
+        ]
 
-        logging.debug(f"Using {config["dialect"].upper()} dialect")
+        print(colored("Preview:", "red"))
+        print(tabulate(preview_data, headers=headers, tablefmt="grid"))
 
-        if conn:
-            for table_name, column_meta in table_data.items():
-                Anonymizer.anonymize_data(conn, table_name, column_meta)
-            conn.close()
-            logging.info("COMPLETED")
+        consent = input(
+            colored("Are you sure you want to commit these changes? (yes/no): ", "red")
+        )
 
-        if is_preview:
+        if consent.lower() == "yes":
+            for row in all_anonymized_rows:
+                set_clause = ", ".join(
+                    [f"{col} = :{col}" for col in column_op_mappings.keys()]
+                )
+                update_stmnt = f"UPDATE {table_name} SET {set_clause} WHERE {primary_key} = :{primary_key}"
+
+                params = {col: row[col] for col in column_op_mappings.keys()}
+                params[primary_key] = row[primary_key]
+
+                self.conn.execute_update(update_stmnt, params)
+            logging.debug("DONE")
+        else:
+            logging.info("Update Aborted")
+
+    def run(self):
+        logging.debug(f"Using {self.dialect} dialect")
+        table_data = self.config.get("tables")
+        batch_size = self.config.get("batch_size")
+
+        for table_name, column_meta in table_data.items():
+            self.anonymize_data(table_name, column_meta, batch_size)
+
+        logging.info("COMPLETED")
+
+    def __del__(self):
+        self.conn.close()
+        preview_config_path = "config.preview.yml"
+        if os.path.exists(preview_config_path):
             try:
-                os.remove("config.preview.yml")
-                logging.info("config.preview.yml deleted.")
+                os.remove(preview_config_path)
+                logging.debug(
+                    f"File {preview_config_path} has been removed successfully."
+                )
+            except PermissionError:
+                logging.debug(
+                    f"Permission denied: Unable to remove {preview_config_path}"
+                )
             except OSError as e:
-                logging.error(f"Error deleting config.preview.yml: {e}")
+                logging.debug(
+                    f"Error occurred while removing {preview_config_path}: {e}"
+                )
+        else:
+            print(f"File {preview_config_path} does not exist.")
 
 
 if __name__ == "__main__":
     load_dotenv()
+
+    parser = argparse.ArgumentParser(description="Run the main application.")
+    parser.add_argument("--preview", action="store_true", help="Run in preview mode")
+    parser.add_argument(
+        "--postgres", action="store_true", help="Use PostgreSQL database"
+    )
+    args = parser.parse_args()
 
     log_styles = {
         "debug": {"color": "green"},
@@ -235,14 +258,16 @@ if __name__ == "__main__":
         level_styles=log_styles,
     )
 
-    parser = argparse.ArgumentParser(description="Run the main application.")
-    parser.add_argument("--preview", action="store_true", help="Run in preview mode")
-    args = parser.parse_args()
+    anonymizer = None
 
     if args.preview:
-        seeder = TestSeeder()
+        seeder = TestSeeder("postgresql" if args.postgres else "mysql")
         seeder.run()
 
-        Anonymizer.is_preview = True
+        anonymizer = Anonymizer(
+            dialect="postgresql" if args.postgres else "mysql", is_preview=True
+        )
+    else:
+        anonymizer = Anonymizer()
 
-    Anonymizer.run()
+    anonymizer.run()

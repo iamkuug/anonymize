@@ -1,13 +1,6 @@
--- Ensure the anony database exists
-CREATE DATABASE IF NOT EXISTS anony;
-USE anony;
-
--- Drop tables if they exist
-
 DROP TABLE IF EXISTS orders;
 DROP TABLE IF EXISTS users;
 
--- Create users table
 CREATE TABLE users (
     id INT AUTO_INCREMENT PRIMARY KEY,
     email VARCHAR(255) NOT NULL,
@@ -16,15 +9,12 @@ CREATE TABLE users (
     address VARCHAR(255)
 );
 
--- Create orders table
 CREATE TABLE orders (
     id INT AUTO_INCREMENT PRIMARY KEY,
     shipping_address VARCHAR(255),
     order_date DATE
 );
 
--- Seed users table with a hefty number of records
--- Inserting more users
 INSERT INTO users (email, phone, password, address)
 VALUES 
 ('user1@example.com', '1234567890', 'password1', '123 Main St.'),
@@ -126,7 +116,6 @@ VALUES
 ('user99@example.com', '8901234567', 'password99', '595 Cedar Drive'),
 ('user100@example.com', '5678901234', 'password100', '928 Elm Street');
 
--- Inserting more orders
 INSERT INTO orders (shipping_address, order_date)
 VALUES 
 ('123 Main St.', '2023-01-01'),
