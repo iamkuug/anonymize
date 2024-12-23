@@ -11,68 +11,78 @@ from dotenv import load_dotenv
 from urllib.parse import quote_plus
 
 
+class Checker:
+    @staticmethod
+    def check_config():
+        logging.debug("Checking config file ...")
+
+        with open("config.yml", "r") as file:
+            config = yaml.safe_load(file)
+
+        if "batch_size" not in config:
+            logging.critical("Critical: 'batch_size' not found in config.yml")
+            raise Exception("Batch size not found in config.yml")
+
+        if "tables" not in config:
+            logging.critical("Critical: 'tables' not found in config.yml")
+            raise Exception("Tables not found in config.yml")
+
+        for table_name, table_config in config["tables"].items():
+            if "primary_key" not in table_config:
+                logging.warning(
+                    f"Warning: 'primary_key' not specified for table '{table_name}', using 'id' by default"
+                )
+            elif table_config["primary_key"] is None:
+                logging.warning(
+                    f"Warning: 'primary_key' specified as None for table '{table_name}', using 'id' by default"
+                )
+        
+
+
 class Shuffler:
-    @staticmethod
-    def shuffle(val: str) -> str:
-        if "@" in val:
-            return Shuffler._shuffle_email(val)
-        elif val.replace("-", "").isdigit() and len(val) >= 10:
-            return Shuffler._shuffle_phone(val)
-        elif any(char.isdigit() for char in val) and any(
-            char.isalpha() for char in val
-        ):
-            return Shuffler._shuffle_address(val)
-        elif Shuffler._is_date(val):
-            return Shuffler._shuffle_date(val)
-        else:
-            return Shuffler._shuffle_name(val)
-
-    @staticmethod
-    def _shuffle_name(name: str) -> str:
+    def __init__(self):
+        self._common_names = ['James', 'John', 'Robert', 'Michael', 'William', 'David', 'Mary', 'Patricia', 'Jennifer', 'Linda']
+        self._last_names = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis']
+    
+    def _get_seed(self, text: str) -> int:
+        return int(hashlib.md5(text.encode()).hexdigest(), 16)
+    
+    def shuffle_name(self, name: str) -> str:
+        seed = self._get_seed(name)
+        random.seed(seed)
         parts = name.split()
-        shuffled_parts = ["".join(random.sample(part, len(part))) for part in parts]
-        return " ".join(shuffled_parts)
-
-    @staticmethod
-    def _shuffle_email(email: str) -> str:
-        local, domain = email.split("@")
-        shuffled_local = "".join(random.sample(local, len(local)))
-        return f"{shuffled_local}@{domain}"
-
-    @staticmethod
-    def _shuffle_phone(phone: str) -> str:
-        if phone.startswith("+"):
-            country_code, number = (
-                phone[: phone.index("-")],
-                phone[phone.index("-") + 1 :],
-            )
-            shuffled_number = "".join(random.sample(number, len(number)))
-            return f"{country_code}-{shuffled_number}"
-        else:
-            return "".join(random.sample(phone, len(phone)))
-
-    @staticmethod
-    def _shuffle_address(address: str) -> str:
+        return f"{random.choice(self._common_names)} {random.choice(self._last_names)}"
+    
+    def shuffle_email(self, email: str) -> str:
+        local, domain = email.split('@')
+        seed = self._get_seed(email)
+        random.seed(seed)
+        chars = list(local)
+        random.shuffle(chars)
+        return f"{''.join(chars)}@{domain}"
+    
+    def shuffle_phone(self, phone: str) -> str:
+        digits = ''.join(filter(str.isdigit, phone))
+        seed = self._get_seed(phone)
+        random.seed(seed)
+        shuffled = ''.join(random.sample(digits, len(digits)))
+        return f"+{shuffled}" if phone.startswith('+') else shuffled
+    
+    def shuffle_date(self, date: str) -> str:
+        if '-' not in date:
+            return date
+        year, month, day = date.split('-')
+        seed = self._get_seed(date)
+        random.seed(seed)
+        new_month = str(random.randint(1, 12)).zfill(2)
+        new_day = str(random.randint(1, 28)).zfill(2)
+        return f"{year}-{new_month}-{new_day}"
+    
+    def shuffle_address(self, address: str) -> str:
+        seed = self._get_seed(address)
+        random.seed(seed)
         parts = address.split()
-        shuffled_parts = ["".join(random.sample(part, len(part))) for part in parts]
-        return " ".join(shuffled_parts)
-
-    @staticmethod
-    def _shuffle_date(date_value: str) -> str:
-        if "-" in date_value:
-            parts = date_value.split("-")
-            random.shuffle(parts)
-            return "-".join(parts)
-        return date_value
-
-    @staticmethod
-    def _is_date(val: str) -> bool:
-        try:
-            datetime.strptime(val, "%Y-%m-%d")
-            return True
-        except ValueError:
-            return False
-
+        return ' '.join(''.join(random.sample(part, len(part))) for part in parts)
 
 class Masker:
     @staticmethod
@@ -256,12 +266,11 @@ class TestSeeder:
 
     def generate_config(self):
         config = {
-            "dialect": self.dialect,
             "batch_size": 10,
             "tables": {
                 "users": {
                     "primary_key": "id",
-                    "mask_columns": [
+                    "shuffle": [
                         {"email": "email"},
                         {"phone": "phone"},
                         {"password": "password"},
@@ -270,7 +279,7 @@ class TestSeeder:
                 },
                 "orders": {
                     "primary_key": "id",
-                    "mask_columns": [
+                    "shuffle": [
                         {"shipping_address": "address"},
                         {"order_date": "date"},
                     ],

@@ -5,7 +5,7 @@ import argparse
 import coloredlogs
 import pymysql
 
-from utils import Masker, TestSeeder, Shifter, DBConnector, Shuffler
+from utils import Masker, TestSeeder, Shifter, DBConnector, Shuffler, Checker
 from tabulate import tabulate
 from termcolor import colored
 from dotenv import load_dotenv
@@ -52,33 +52,20 @@ class Anonymizer:
             self.config = yaml.safe_load(file)
 
     def apply_shuffle(self, shuffle_type, value):
-        if shuffle_type== "email":
-            return Shuffler._shuffle_email(value)
+
+        shuffler = Shuffler()
+        if shuffle_type == "email":
+            return shuffler.shuffle_email(value)
         elif shuffle_type == "phone":
-            return Shuffler._shuffle_phone(value)
+            return shuffler.shuffle_phone(value)
         elif shuffle_type == "password":
             return Masker._hash_value(value)
         elif shuffle_type == "address":
-            return Shuffler._shuffle_address(value)
+            return shuffler.shuffle_address(value)
         elif shuffle_type == "date":
             return Shifter.shift_date(value)
         else:
-            logging.error(f"Unknown mask/shift type: {shuffle_type}")
-            return value
-
-    def apply_masking(self, mask_type, value):
-        if mask_type == "email":
-            return Masker.mask_email(value)
-        elif mask_type == "phone":
-            return Masker.mask_phone(value)
-        elif mask_type == "password":
-            return Masker._hash_value(value)
-        elif mask_type == "address":
-            return Masker.mask_address(value)
-        elif mask_type == "date":
-            return Shifter.shift_date(value)
-        else:
-            logging.error(f"Unknown mask/shift type: {mask_type}")
+            logging.error(f"Unknown shuffle type: {shuffle_type}")
             return value
 
     def anonymize_data(self, table_name, column_meta, batch_size=10):
@@ -87,9 +74,10 @@ class Anonymizer:
         primary_key = (
             column_meta["primary_key"] if column_meta.get("primary_key") else "id"
         )
-        mask_columns = column_meta["mask_columns"]
+        shuffle_columns = column_meta["shuffle"]
+
         column_op_mappings = {
-            list(col.keys())[0]: list(col.values())[0] for col in mask_columns
+            list(col.keys())[0]: list(col.values())[0] for col in shuffle_columns
         }
 
         columns = ",".join(column_op_mappings.keys())
@@ -286,6 +274,7 @@ if __name__ == "__main__":
                 dialect="postgresql" if args.postgres else "mysql", is_preview=True
             )
         else:
+            Checker.check_config()
             anonymizer = Anonymizer(dialect="postgresql" if args.postgres else "mysql")
 
         anonymizer.run()

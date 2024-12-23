@@ -51,30 +51,27 @@ The script requires a configuration file to define the database dialect, batch s
 Create a YAML configuration file named `config.yaml` in the project root directory:
 
 ```yaml
-dialect: mysql  # Supported values: mysql, postgres
-batch_size: 15  # Number of rows processed per batch
 tables:
     users:
       primary_key: id
-      mask_columns:
+      shuffle:
         - email: email  # Mask email addresses
         - phone: phone  # Mask phone numbers
         - password: password  # Mask passwords
         - address: address  # Mask addresses
     orders:
       primary_key: id
-      mask_columns:
+      shuffle:
         - shipping_address: address  # Mask shipping addresses
         - order_date: date  # Mask order dates
 ```
 
 ### 2. Configuration File Details
 
-- **`dialect`**: Specifies the database type (`mysql` or `postgres`).
 - **`batch_size`**: Determines the number of records processed in each batch. Adjust for performance.
 - **`tables`**: Defines the tables to anonymize:
   - **`primary_key`**: Specifies the primary key for each table to maintain referential integrity.
-  - **`mask_columns`**: Maps the column names in the database to their corresponding PII type:
+  - **`shuffle`**: Maps the column names in the database to their corresponding PII type:
     - **`email`**: Emails
     - **`phone`**: Phone numbers
     - **`password`**: Password fields

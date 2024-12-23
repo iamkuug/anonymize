@@ -1,14 +1,14 @@
-dialect: mysql # could be postgres
+batch_size: 10
 tables:
     users:
       primary_key: id
-      mask_columns:
+      shuffle:
         - email: email
         - phone: phone
         - password: password
         - address: address
     orders:
       primary_key: id 
-      mask_columns:
+      shuffle:
         - shipping_address: address
         - order_date: date
