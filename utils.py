@@ -1,6 +1,7 @@
 import hashlib
 import os
 import logging
+import random
 import yaml
 
 from datetime import datetime, timedelta, date
@@ -8,6 +9,69 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 from urllib.parse import quote_plus
+
+
+class Shuffler:
+    @staticmethod
+    def shuffle(val: str) -> str:
+        if "@" in val:
+            return Shuffler._shuffle_email(val)
+        elif val.replace("-", "").isdigit() and len(val) >= 10:
+            return Shuffler._shuffle_phone(val)
+        elif any(char.isdigit() for char in val) and any(
+            char.isalpha() for char in val
+        ):
+            return Shuffler._shuffle_address(val)
+        elif Shuffler._is_date(val):
+            return Shuffler._shuffle_date(val)
+        else:
+            return Shuffler._shuffle_name(val)
+
+    @staticmethod
+    def _shuffle_name(name: str) -> str:
+        parts = name.split()
+        shuffled_parts = ["".join(random.sample(part, len(part))) for part in parts]
+        return " ".join(shuffled_parts)
+
+    @staticmethod
+    def _shuffle_email(email: str) -> str:
+        local, domain = email.split("@")
+        shuffled_local = "".join(random.sample(local, len(local)))
+        return f"{shuffled_local}@{domain}"
+
+    @staticmethod
+    def _shuffle_phone(phone: str) -> str:
+        if phone.startswith("+"):
+            country_code, number = (
+                phone[: phone.index("-")],
+                phone[phone.index("-") + 1 :],
+            )
+            shuffled_number = "".join(random.sample(number, len(number)))
+            return f"{country_code}-{shuffled_number}"
+        else:
+            return "".join(random.sample(phone, len(phone)))
+
+    @staticmethod
+    def _shuffle_address(address: str) -> str:
+        parts = address.split()
+        shuffled_parts = ["".join(random.sample(part, len(part))) for part in parts]
+        return " ".join(shuffled_parts)
+
+    @staticmethod
+    def _shuffle_date(date_value: str) -> str:
+        if "-" in date_value:
+            parts = date_value.split("-")
+            random.shuffle(parts)
+            return "-".join(parts)
+        return date_value
+
+    @staticmethod
+    def _is_date(val: str) -> bool:
+        try:
+            datetime.strptime(val, "%Y-%m-%d")
+            return True
+        except ValueError:
+            return False
 
 
 class Masker:

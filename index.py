@@ -5,7 +5,7 @@ import argparse
 import coloredlogs
 import pymysql
 
-from utils import Masker, TestSeeder, Shifter, DBConnector
+from utils import Masker, TestSeeder, Shifter, DBConnector, Shuffler
 from tabulate import tabulate
 from termcolor import colored
 from dotenv import load_dotenv
@@ -50,6 +50,21 @@ class Anonymizer:
 
         with open("config.yml", "r") as file:
             self.config = yaml.safe_load(file)
+
+    def apply_shuffle(self, shuffle_type, value):
+        if shuffle_type== "email":
+            return Shuffler._shuffle_email(value)
+        elif shuffle_type == "phone":
+            return Shuffler._shuffle_phone(value)
+        elif shuffle_type == "password":
+            return Masker._hash_value(value)
+        elif shuffle_type == "address":
+            return Shuffler._shuffle_address(value)
+        elif shuffle_type == "date":
+            return Shifter.shift_date(value)
+        else:
+            logging.error(f"Unknown mask/shift type: {shuffle_type}")
+            return value
 
     def apply_masking(self, mask_type, value):
         if mask_type == "email":
@@ -102,7 +117,7 @@ class Anonymizer:
                 {
                     **{primary_key: row[primary_key]},
                     **{
-                        col: self.apply_masking(column_op_mappings[col], row[col])
+                        col: self.apply_shuffle(column_op_mappings[col], row[col])
                         for col in column_op_mappings.keys()
                     },
                 }
@@ -134,7 +149,7 @@ class Anonymizer:
         sample_anon_row = {
             **{primary_key: sample_row[primary_key]},
             **{
-                col: self.apply_masking(column_op_mappings[col], sample_row[col])
+                col: self.apply_shuffle(column_op_mappings[col], sample_row[col])
                 for col in column_op_mappings.keys()
             },
         }
