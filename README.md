@@ -55,15 +55,15 @@ tables:
     users:
       primary_key: id
       shuffle:
-        - email: email  # Mask email addresses
-        - phone: phone  # Mask phone numbers
-        - password: password  # Mask passwords
-        - address: address  # Mask addresses
+        - email: email  # anonymize email address column
+        - phone: phone  # anonymize phone column
+        - password: password  # anonymize password column
+        - address: address  # anonymize address column
     orders:
       primary_key: id
       shuffle:
-        - shipping_address: address  # Mask shipping addresses
-        - order_date: date  # Mask order dates
+        - shipping_address: address  # anonymize address column
+        - order_date: date  # anonymize date column
 ```
 
 ### 2. Configuration File Details

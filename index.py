@@ -224,8 +224,6 @@ class Anonymizer:
                 logging.debug(
                     f"Error occurred while removing {preview_config_path}: {e}"
                 )
-        # else:
-        #     print(f"File {preview_config_path} does not exist.")
 
 
 if __name__ == "__main__":
